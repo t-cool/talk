@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>リアルタイム音声対話システム (RTX 3060 × 2)</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- LiveKit Client SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.6.4/dist/livekit-client.umd.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo-area">
+        <span class="badge">LiveKit + vLLM + Kokoro</span>
+        <h1>リアルタイム音声対話システム</h1>
+        <p class="subtitle">RTX 3060 12GB × 2枚による10人同時接続対応アーキテクチャ</p>
+      </div>
+      <div class="gpu-badge-container">
+        <div class="gpu-chip">
+          <span class="dot gpu0"></span>
+          <span>GPU 0: vLLM (Qwen 2.5 7B AWQ)</span>
+        </div>
+        <div class="gpu-chip">
+          <span class="dot gpu1"></span>
+          <span>GPU 1: faster-whisper + Kokoro TTS</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- Left / Center: Interactive Voice Console -->
+      <section class="card voice-console">
+        <div class="console-header">
+          <div class="status-indicator">
+            <span id="statusDot" class="status-dot disconnected"></span>
+            <span id="statusText" class="status-text">未接続</span>
+          </div>
+          <div class="room-info">
+            <input type="text" id="roomInput" value="room-1" placeholder="ルーム名" />
+          </div>
+        </div>
+
+        <div class="visualizer-container">
+          <canvas id="visualizerCanvas" width="600" height="160"></canvas>
+          <div id="speakingState" class="speaking-state">待機中</div>
+        </div>
+
+        <div class="controls">
+          <button id="btnConnect" class="btn btn-primary">
+            <span class="icon">🎙️</span> 会話を開始する
+          </button>
+          <button id="btnDisconnect" class="btn btn-danger" disabled>
+            <span class="icon">⏹️</span> 切断
+          </button>
+          <button id="btnMute" class="btn btn-secondary" disabled>
+            <span id="muteIcon" class="icon">🎤</span> <span id="muteText">ミュート</span>
+          </button>
+        </div>
+
+        <div class="latency-metrics">
+          <div class="metric-item">
+            <span class="metric-label">接続状態</span>
+            <span id="metricConnection" class="metric-val">Offline</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">割り込み(Barge-in)</span>
+            <span class="metric-val text-success">有効 (200ms)</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">TTS Chunking</span>
+            <span class="metric-val text-info">句読点即時送出</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Live Conversation Transcript -->
+      <section class="card transcript-card">
+        <div class="transcript-header">
+          <h2>リアルタイム対話ログ</h2>
+          <button id="btnClear" class="btn-text">クリア</button>
+        </div>
+        <div id="transcriptBox" class="transcript-box">
+          <div class="bubble system-bubble">
+            「会話を開始する」を押すとマイクが接続され、AIアシスタントと対話できます。<br>
+            AIの発話中に話しかけると、バージイン（割り込み）機能により即時中断されます。
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Hidden audio element for remote assistant voice -->
+    <audio id="remoteAudio" autoplay playsinline></audio>
+
+    <footer class="footer">
+      <span>RTX 3060 12GB × 2 Cascade Architecture: LiveKit Agents + faster-whisper + vLLM + Kokoro-82M</span>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

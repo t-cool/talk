@@ -1,0 +1,137 @@
+services:
+  # -------------------------------------------------------------
+  # 1. LiveKit WebRTC Signaling & SFU Media Server (CPU)
+  # -------------------------------------------------------------
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: voice_livekit_server
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./config/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"                # HTTP & WebRTC Signaling
+      - "7881:7881"                # TCP WebRTC
+      - "7882:7882/udp"            # UDP WebRTC
+      - "50000-50020:50000-50020/udp" # WebRTC Media Port Range
+    restart: unless-stopped
+    networks:
+      - voice-net
+
+  # -------------------------------------------------------------
+  # 2. GPU 0: vLLM (Qwen 2.5 7B-Instruct AWQ) 専用
+  #    Continuous Batching & PagedAttention で 10 人同時対話を処理
+  # -------------------------------------------------------------
+  vllm:
+    image: vllm/vllm-openai:v0.6.3
+    container_name: voice_vllm_gpu0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - HF_HOME=/root/.cache/huggingface
+    command: >
+      --model Qwen/Qwen2.5-7B-Instruct-AWQ
+      --quantization awq
+      --gpu-memory-utilization 0.90
+      --max-model-len 2048
+      --max-num-seqs 16
+      --port 8000
+      --trust-remote-code
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    networks:
+      - voice-net
+
+  # -------------------------------------------------------------
+  # 3. GPU 1: 音声 I/O 専用 (faster-whisper + Kokoro-82M)
+  #    STT & TTS を物理分離し、スパイク時も LLM との競合を回避
+  # -------------------------------------------------------------
+  audio-service:
+    build:
+      context: ./services/audio-service
+      dockerfile: Dockerfile
+    container_name: voice_audio_gpu1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']
+              capabilities: [gpu]
+    environment:
+      - CUDA_VISIBLE_DEVICES=0 # コンテナ内では割り当てられたGPU 1がdevice 0として認識されます
+      - WHISPER_MODEL=Systran/faster-whisper-medium
+      - KOKORO_VOICE=jf_alpha
+      - HF_HOME=/root/.cache/huggingface
+    ports:
+      - "8001:8000"
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    networks:
+      - voice-net
+
+  # -------------------------------------------------------------
+  # 4. LiveKit Agents Python Worker (CPU / Host OS)
+  #    Silero VAD + 句読点ストリーミング + バージイン制御
+  # -------------------------------------------------------------
+  livekit-agent:
+    build:
+      context: ./services/livekit-agent
+      dockerfile: Dockerfile
+    container_name: voice_livekit_agent
+    environment:
+      - LIVEKIT_URL=ws://livekit-server:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secretkeyforlocalvoiceai2026
+      - VLLM_BASE_URL=http://vllm:8000/v1
+      - AUDIO_BASE_URL=http://audio-service:8000/v1
+      - LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
+      - WHISPER_MODEL=Systran/faster-whisper-medium
+      - KOKORO_VOICE=jf_alpha
+      - NUM_IDLE_PROCESSES=4 # 10人同時接続をスムーズに受け付けるためのアイドルワーカー数
+    depends_on:
+      - livekit-server
+      - vllm
+      - audio-service
+    restart: unless-stopped
+    networks:
+      - voice-net
+
+  # -------------------------------------------------------------
+  # 5. Web Client デモ & トークン発行サーバー (CPU)
+  #    ブラウザから直接リアルタイム対話テストが可能
+  # -------------------------------------------------------------
+  web-client:
+    build:
+      context: ./services/web-client
+      dockerfile: Dockerfile
+    container_name: voice_web_client
+    environment:
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secretkeyforlocalvoiceai2026
+      - LIVEKIT_PUBLIC_URL=ws://localhost:7880
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - livekit-server
+    restart: unless-stopped
+    networks:
+      - voice-net
+
+volumes:
+  hf_cache:
+    name: voice_ai_hf_cache
+
+networks:
+  voice-net:
+    driver: bridge
